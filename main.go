@@ -7,5 +7,7 @@ import (
 func main() {
 	r := gin.Default()
 
+	ConfigureRouter(r)
+
 	panic(r.Run())
 }

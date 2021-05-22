@@ -8,3 +8,13 @@
 
 下载依赖 `go mod download`
 
+### gin 框架使用
+
+1. 添加router 
+   - GET/POST
+   - REST（路径作为参数）
+2. 解析参数
+   - query/postform
+   - params
+   - bind & validator
+3. 处理
