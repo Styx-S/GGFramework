@@ -14,7 +14,7 @@ type Room struct {
 }
 
 
-var id2rooms = make(map[ID]Room)
+var id2rooms = make(map[ID]*Room)
 
 // 房间是否存在
 func IsRoomExist(roomID ID) bool {
@@ -50,7 +50,7 @@ func Create(roomID ID, firstUser UserName) CreateRet {
 		RoomID: roomID,
 		Users: []UserName{firstUser},
 	}
-	id2rooms[roomID] = room
+	id2rooms[roomID] = &room
 	return CreateRetSucceed
 }
 
@@ -75,8 +75,6 @@ func Join(roomID ID, user UserName) JoinRet {
 
 	room := id2rooms[roomID]
 	room.Users = append(room.Users, user)
-	// 不加这行不行，就不能是引用吗？我再学下go
-	id2rooms[roomID] = room
 	return JoinRetSucceed
 }
 
