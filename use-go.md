@@ -8,6 +8,10 @@
 
 下载依赖 `go mod download`
 
+### go
+
+比较坑的一点，struct 使用的地方和定义的地方不同，导致忘记make chan，debug了半天
+
 ### gin 框架使用
 
 1. 添加router 

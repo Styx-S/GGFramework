@@ -6,7 +6,7 @@ GGFramework(Go Game Framework) is a game server coded by golang.
 
 ```
 go mod download
-go run main.go
+go run *.go
 ```
 
 
