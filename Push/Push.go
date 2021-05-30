@@ -2,77 +2,66 @@ package Push
 
 import (
 	"GGFramework/Define"
-	"GGFramework/Room"
-	"github.com/gorilla/websocket"
 )
 
-type WSContext struct {
-	RoomID Room.ID
-	UserID Room.UserName
-	Socket *websocket.Conn
-	// channels
-	Send chan *Define.WSPacket
+type ModuleImpl struct {
+	svr   *Define.Server
+	Items map[Define.RoomID]*[]*WSContext
+	/* 用于在单个线程中执行（可能）是多线程发来的请求 */
+	RegisterChan   chan *WSContext
+	UnRegisterChan chan *WSContext
+	KickChan       chan *WSContext
 }
 
-type BroadcastPacket struct {
-	RoomID Room.ID
-	Packet Define.WSPacket
+func (impl *ModuleImpl) Broadcast(packet *Define.BroadcastPacket) {
+	impl.sendAll(&packet.Packet, packet.RoomID, packet.IgnoreUser)
 }
 
-type Center struct {
-	Items      map[Room.ID]*[]*WSContext
-	Broadcast  chan *BroadcastPacket
-	Register   chan *WSContext
-	UnRegister chan *WSContext
+func (impl *ModuleImpl) RemoveNotify(roomID Define.RoomID, username Define.UserName) {
+
 }
 
-var CtxManager = Center{
-	Items:      make(map[Room.ID]*[]*WSContext),
-	Broadcast:  make(chan *BroadcastPacket),
-	Register:   make(chan *WSContext),
-	UnRegister: make(chan *WSContext),
+func (impl *ModuleImpl) New() *ModuleImpl {
+	impl.Items = make(map[Define.RoomID]*[]*WSContext)
+	impl.RegisterChan = make(chan *WSContext)
+	impl.UnRegisterChan = make(chan *WSContext)
+	impl.KickChan = make(chan *WSContext)
+	return impl
+}
+func (impl *ModuleImpl) ConnectToSvr(svr *Define.Server) {
+	impl.svr = svr
 }
 
-const (
-	RoomEventUserJoin = 0
-	RoomEventUserLeve = 1
-)
-
-func (center *Center) Start() {
+func (impl *ModuleImpl) Start() {
 	for {
 		select {
-		case ctx := <-center.Register:
-			if center.addItem(ctx) {
-				center.SendAll(&Define.WSPacket{
-					Type:     Define.WSPacketTypeRawMsg,
-					Category: Define.WSPacketCategoryRoom,
-					Code:     RoomEventUserJoin,
-					Param: map[string]string{
-						"username": string(ctx.UserID),
-					},
-				}, ctx.RoomID, ctx.UserID)
+		case ctx := <-impl.RegisterChan:
+			if impl.addItem(ctx) {
+
 			}
 
-		case ctx := <-center.UnRegister:
-			if center.removeItem(ctx) {
-				center.SendAll(&Define.WSPacket{
-					Type:     Define.WSPacketTypeRawMsg,
-					Category: Define.WSPacketCategoryRoom,
-					Code:     RoomEventUserLeve,
-					Param: map[string]string{
-						"username": string(ctx.UserID),
-					},
-				}, ctx.RoomID, ctx.UserID)
-			}
+		case ctx := <-impl.UnRegisterChan:
+			if impl.removeItem(ctx) {
 
-		case broadcast := <-center.Broadcast:
-			center.SendAll(&broadcast.Packet, broadcast.RoomID, "")
+			}
 		}
 	}
 }
 
-func (center *Center) SendAll(packet *Define.WSPacket, roomID Room.ID, ignoreUser Room.UserName) bool {
-	list, ok := center.Items[roomID]
+func (impl *ModuleImpl) Notify(roomID Define.RoomID, username Define.UserName, packet *Define.WSPacket) {
+	list, ok := impl.Items[roomID]
+	if ok {
+		for _, item := range *list {
+			if item.UserID == username {
+				item.Send <- packet
+				return
+			}
+		}
+	}
+}
+
+func (impl *ModuleImpl) sendAll(packet *Define.WSPacket, roomID Define.RoomID, ignoreUser Define.UserName) bool {
+	list, ok := impl.Items[roomID]
 	if !ok {
 		return false
 	}
@@ -84,8 +73,8 @@ func (center *Center) SendAll(packet *Define.WSPacket, roomID Room.ID, ignoreUse
 	return true
 }
 
-func (center *Center) addItem(ctx *WSContext) bool {
-	list, ok := center.Items[ctx.RoomID]
+func (impl *ModuleImpl) addItem(ctx *WSContext) bool {
+	list, ok := impl.Items[ctx.RoomID]
 	if !ok {
 		return false
 	}
@@ -93,9 +82,9 @@ func (center *Center) addItem(ctx *WSContext) bool {
 	return true
 }
 
-func (center *Center) removeItem(ctx *WSContext) bool {
+func (impl *ModuleImpl) removeItem(ctx *WSContext) bool {
 
-	_, target, list, ok := center.findContext(ctx.RoomID, ctx.UserID)
+	_, target, list, ok := impl.findContext(ctx.RoomID, ctx.UserID)
 
 	if ok {
 		*list = append((*list)[:target], (*list)[target:]...)
@@ -106,8 +95,8 @@ func (center *Center) removeItem(ctx *WSContext) bool {
 }
 
 // target Context, its index, room list,
-func (center *Center) findContext(roomID Room.ID, userID Room.UserName) (*WSContext, int, *[]*WSContext, bool) {
-	list, ok := center.Items[roomID]
+func (impl *ModuleImpl) findContext(roomID Define.RoomID, userID Define.UserName) (*WSContext, int, *[]*WSContext, bool) {
+	list, ok := impl.Items[roomID]
 	if ok {
 		for index, item := range *list {
 			if item.UserID == userID && item.RoomID == roomID {

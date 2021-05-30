@@ -2,13 +2,65 @@ package Push
 
 import (
 	"GGFramework/Define"
-	"GGFramework/Room"
 	"encoding/json"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 	"net/http"
 	"strconv"
 )
+
+type WSContext struct {
+	RoomID Define.RoomID
+	UserID Define.UserName
+	Socket *websocket.Conn
+	// channels
+	Send chan *Define.WSPacket
+}
+
+func (ctx *WSContext) Read() {
+	defer func() {
+		ctx.Socket.Close()
+	}()
+
+	for {
+		_, message, err := ctx.Socket.ReadMessage()
+		if err != nil {
+			ctx.Socket.Close()
+			break
+		}
+		var packet Define.WSPacket
+		jsonErr := json.Unmarshal(message, &packet)
+		if jsonErr != nil {
+			continue
+		}
+
+		ctx.Dispatch(&packet)
+	}
+}
+
+func (ctx *WSContext) Write() {
+	defer func() {
+		ctx.Socket.Close()
+	}()
+
+	for {
+		select {
+		case packet, ok := <-ctx.Send:
+			if !ok {
+				return
+			}
+
+			message, err := json.Marshal(packet)
+			if err != nil {
+				continue
+			}
+			ctx.Socket.WriteMessage(int(packet.Type), message)
+		}
+	}
+}
+
+// Push.handler中需要直接和ModuleImpl的channel打交道，因此直接取接口实现
+var ModuleInstance *ModuleImpl = (&ModuleImpl{}).New()
 
 type ConnectWSRequest struct {
 	RoomID   string `form:"room_id"`
@@ -38,62 +90,19 @@ func ConnectWebsocket(ctx *gin.Context) {
 	}
 
 	ws := &WSContext{
-		RoomID: Room.ID(request.RoomID),
-		UserID: Room.UserName(request.Username),
+		RoomID: Define.RoomID(request.RoomID),
+		UserID: Define.UserName(request.Username),
 		Socket: conn,
 		Send:   make(chan *Define.WSPacket),
 	}
 
 	go ws.Write()
 	go ws.Read()
-	CtxManager.Register <- ws
-}
-
-func (ctx *WSContext) Read() {
-	defer func() {
-		CtxManager.UnRegister <- ctx
-		ctx.Socket.Close()
-	}()
-
-	for {
-		_, message, err := ctx.Socket.ReadMessage()
-		if err != nil {
-			CtxManager.UnRegister <- ctx
-			ctx.Socket.Close()
-			break
-		}
-		var packet Define.WSPacket
-		jsonErr := json.Unmarshal(message, &packet)
-		if jsonErr != nil {
-			continue
-		}
-
-		ctx.Dispatch(&packet)
-	}
-}
-
-func (ctx *WSContext) Write() {
-	defer func() {
-		ctx.Socket.Close()
-	}()
-
-	for {
-		select {
-		case packet, ok := <-ctx.Send:
-			if !ok {
-				continue
-			}
-
-			message, err := json.Marshal(packet)
-			if err != nil {
-				continue
-			}
-			ctx.Socket.WriteMessage(int(packet.Type), message)
-		}
-	}
+	ModuleInstance.RegisterChan <- ws
 }
 
 func (ctx *WSContext) Dispatch(packet *Define.WSPacket) {
+
 	switch packet.Category {
 	case Define.WSPacketCategoryWebsocket:
 		{
@@ -109,6 +118,7 @@ func (ctx *WSContext) Dispatch(packet *Define.WSPacket) {
 			default:
 				return
 			}
+
 		}
 	case Define.WSPacketCategoryGameLogic:
 		{
@@ -116,6 +126,7 @@ func (ctx *WSContext) Dispatch(packet *Define.WSPacket) {
 		}
 
 	}
+
 }
 
 // server端不需要做heartbeat计时逻辑，交给client来做
