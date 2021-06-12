@@ -1,0 +1,9 @@
+version: '2'
+services:
+  ggf:
+    container_name: ggf
+    image: ggframework:v1
+    ports:
+      - "80:8080"
+    volumes:
+      - /data/ggf:/usr/local/ggf
